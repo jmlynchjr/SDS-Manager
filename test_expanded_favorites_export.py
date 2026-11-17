@@ -7,6 +7,22 @@ from scanner_favorites_expanded import assess_expanded_hpd_replacement as assess
 from test_first_scanner_write import FirstWriteTests, hpd
 
 
+# v0.1.34: never write export-state.json into the real SDS-Manager data folder while testing
+import tempfile as _tempfile
+from unittest import mock as _mock
+_STATE = _tempfile.TemporaryDirectory()
+_STATE_PATCH = _mock.patch('export_state.state_path', lambda: Path(_STATE.name) / 'export-state.json')
+
+
+def setUpModule():
+    _STATE_PATCH.start()
+
+
+def tearDownModule():
+    _STATE_PATCH.stop()
+
+
+
 def rows(raw):
     return raw.splitlines(keepends=True)
 

@@ -7,7 +7,8 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QMessageBox,
 from PyQt6.QtCore import QObject, QSettings, QThread, QTimer, pyqtSignal, Qt, QUrl
 from PyQt6.QtGui import QIcon, QAction, QDesktopServices, QTextCursor
 from pathlib import Path
-import hashlib, json, re, os, tempfile
+import hashlib, json, re, os, shutil, tempfile
+import data_area
 from datetime import datetime, timezone
 from managed_storage import ROOT, initialize, active_database, activate_export
 from edition import APP_NAME, APP_VERSION, DB_UPDATE_LABEL
@@ -17,6 +18,8 @@ from updates import UpdatesMixin
 from master_hpdb_validator import validate
 from favorites_manager import FavoritesManager
 from manage_actions import ManageMixin
+from compare_dialog import CompareMixin
+from rr_update_dialog import RRUpdateMixin
 
 
 class RestorePreviewWorker(QObject):
@@ -203,6 +206,9 @@ class UpdateWorker(QObject):
             if result is None:
                 raise ValueError('No database archive was chosen.')
             archive_path = Path(result['path'])
+            if self.local_path:                 # v0.1.34: keep a copy in the data folder's downloads
+                archive_path = keep_archive_copy(archive_path, Path(self.download_dir), self.status.emit)
+                result = dict(result, path=str(archive_path))
             self.status.emit('Calculating downloaded archive SHA-256')
             digest = hashlib.sha256()
             with archive_path.open('rb') as source:
@@ -216,7 +222,33 @@ class UpdateWorker(QObject):
             # No credentials in exception text: HTTP module provides sanitized errors.
             self.failed.emit(f'{type(exc).__name__}: {exc}')
 
-class ManagerWindow(ManageMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, QMainWindow):
+def keep_archive_copy(source, downloads, status=lambda text: None):
+    """The archive inside downloads: copied there unless it already is (v0.1.34). A different file with
+    the same name already there is an error; the same file is simply used."""
+    source = Path(source).resolve()
+    downloads.mkdir(parents=True, exist_ok=True)
+    target = downloads / source.name
+    if source.parent == downloads.resolve():
+        return source
+    if target.exists():
+        def sha(path):
+            h = hashlib.sha256()
+            with Path(path).open('rb') as f:
+                for block in iter(lambda: f.read(1024 * 1024), b''):
+                    h.update(block)
+            return h.digest()
+        if sha(target) == sha(source):
+            return target
+        raise ValueError(f'A different archive named {source.name} is already in {downloads}. '
+                         'Move or delete one of them first.')
+    status('Keeping a copy of the archive in the SDS-Manager data folder')
+    temporary = downloads / ('.' + source.name + '.part')
+    shutil.copyfile(source, temporary)
+    os.replace(temporary, target)
+    return target
+
+
+class ManagerWindow(ManageMixin, CompareMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, RRUpdateMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
@@ -300,7 +332,7 @@ class ManagerWindow(ManageMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, QM
         from PyQt6.QtWidgets import QFileDialog, QDialog, QVBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem, QDialogButtonBox
         from native_favorites_reader import parse_native_favorites
         if not path:
-            path, _ = QFileDialog.getOpenFileName(self, 'Inspect Native Favorites (read-only)', str(Path.home()), 'Uniden Favorites (*.hpd)')
+            path, _ = QFileDialog.getOpenFileName(self, 'Inspect Native Favorites (read-only)', str(data_area.folder('exports')), 'Uniden Favorites (*.hpd)')
         if not path:
             return
         try:
@@ -349,11 +381,8 @@ class ManagerWindow(ManageMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, QM
         except (ValueError, UnicodeError, KeyError, TypeError) as exc:
             QMessageBox.warning(self, 'Native export blocked', str(exc))
             return
-        path, _ = QFileDialog.getSaveFileName(self, 'Export Native Favorites — LOCAL FILE ONLY',
-            str(Path.home() / 'Documents' / 'sds100-export.hpd'), 'Uniden Favorites (*.hpd)')
-        if not path:
-            return
-        target = Path(path).expanduser().resolve()
+        # v0.1.34: into the data folder's exports, never over an existing file
+        target = data_area.unique(data_area.folder('exports'), data_area.safe_name(name[:-4] if name.lower().endswith('.hpd') else name) + '.hpd').resolve()
         if target.suffix.lower() != '.hpd':
             QMessageBox.warning(self, 'Invalid destination', 'Choose a .hpd filename.')
             return
@@ -373,11 +402,6 @@ class ManagerWindow(ManageMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, QM
         if not target.parent.is_dir():
             QMessageBox.warning(self, 'Invalid destination', 'Choose an existing local directory.')
             return
-        if QMessageBox.question(self, 'Confirm offline native export',
-                f'Create NEW local native Favorites file?\n\n{target}\n\n'
-                f'{len(rows)} native records; {len(payload)} bytes.\n'
-                'Original file will remain unchanged. This is NOT Export to Scanner.') != QMessageBox.StandardButton.Yes:
-            return
         staged = None
         try:
             with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.sds100-hpd-', suffix='.tmp', delete=False) as f:
@@ -392,9 +416,9 @@ class ManagerWindow(ManageMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, QM
                 out.flush()
                 os.fsync(out.fileno())
             stats = validate_export_file(target, rows)
-            QMessageBox.information(self, 'Native Favorites export validated',
-                f'Created local file: {target}\nSystems: {stats["systems"]}\nSHA-256: {stats["sha256"]}\n'
-                'Original scanner file unchanged. Scanner export remains disabled.')
+            data_area.show_saved(self, 'Save Favorites List as File', target,
+                                 f'Saved and checked ({stats["systems"]} system(s), {len(rows)} lines). '
+                                 'Nothing on the scanner changed.\n\nThe file is in the SDS-Manager data folder:')
         except (OSError, ValueError, UnicodeError) as exc:
             QMessageBox.warning(self, 'Export failed', str(exc))
         finally:
@@ -2192,6 +2216,8 @@ class ManagerWindow(ManageMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, QM
         backup.addAction('Scanner Export Preflight (Read-only)…', self.scanner_export_preflight)
         backup.addAction('Back Up Scanner Configuration (Read-only)…', self.backup_scanner_configuration)
         backup.addAction('Restore from Backup…', self.restore_from_backup)
+        menus['File'].addAction('Compare Configuration with Scanner…', self.compare_configuration_with_scanner)
+        menus['File'].addAction('Compare Two Configurations…', self.compare_two_configurations)
         menus['File'].addAction('Export to Scanner…', self.export_to_scanner)
         self._tools_menu = menus['Tools']
         settings = menus['Tools'].addAction('Settings…', self.edit_preferences)
@@ -2216,7 +2242,7 @@ class ManagerWindow(ManageMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, QM
         menus['Scanner Settings'].addAction('Update Scanner Firmware…', self.update_scanner_firmware)
         storage = menus['File'].addMenu('Storage')
         storage.addAction('Import Existing Database into Managed Storage…', self.import_managed_database)
-        storage.addAction('Open Managed Data Folder…', self.show_managed_path)
+        storage.addAction('Open Data Folder…', self.show_managed_path)
         menus['File'].addSeparator()
         menus['File'].addAction('Exit', self.close)
         workspace_actions = {
@@ -2243,6 +2269,8 @@ class ManagerWindow(ManageMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, QM
         favorites.addAction('Save Favorites List as File (.hpd)…', self.export_native_hpd)
         favorites.addSeparator()
         favorites.addAction('Favorites List Settings…', self.edit_favorites_list_settings)
+        favorites.addAction('Update Favorites List from RadioReference…', lambda: self.update_list_from_rr())
+        favorites.addAction('Check All Lists from RadioReference…', lambda: self.check_all_lists())
         favorites.addAction('Keys && Tags…', self.open_keys_and_tags).setShortcut('Ctrl+K')
         favorites_advanced = menus['Favorites'].addMenu('Advanced')
         favorites_advanced.addAction('Favorites List Relationships (Read-only)…', self.inspect_favorites_list_relationships)
@@ -2545,7 +2573,8 @@ class ManagerWindow(ManageMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, QM
     def _choose_database_archive(self):
         """(archive name, local file or None), or (None, None) if cancelled."""
         path, _ = QFileDialog.getOpenFileName(
-            self, 'Choose a Uniden master database archive (MasterHpdb_MM_DD_YYYY.gz)', str(Path.home()),
+            self, 'Choose a Uniden master database archive (MasterHpdb_MM_DD_YYYY.gz)',
+            str(Path.home() / 'Downloads' if (Path.home() / 'Downloads').is_dir() else Path.home()),
             'Master database archives (MasterHpdb_*.gz);;All files (*)')
         if not path:
             return None, None
@@ -2628,11 +2657,12 @@ class ManagerWindow(ManageMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, QM
             if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))):
                 raise RuntimeError('KDE did not accept the folder-open request.')
         except Exception as exc:
-            QMessageBox.warning(self, 'Open Managed Data Folder',
+            QMessageBox.warning(self, 'Open Data Folder',
                                 f'Could not open the managed data folder:\n{ROOT}\n\n{exc}')
 
     def import_managed_database(self):
-        folder = QFileDialog.getExistingDirectory(self, 'Choose existing complete 70-file database', str(Path.home()))
+        folder = QFileDialog.getExistingDirectory(self, 'Choose existing complete 70-file database',
+                                                  str(data_area.folder('rebuilt')))
         if not folder: return
         if QMessageBox.question(self, 'Import offline database',
             'Copy this database into private application storage and activate it?\n'
@@ -2677,27 +2707,16 @@ class ManagerWindow(ManageMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, QM
         from pathlib import Path
         from hpdb_bulk_reconstruction import reconstruct_all_states
         master, _ = QFileDialog.getOpenFileName(
-            self, 'Select local Master HPDB', str(Path.home() / 'SDS100-Research'),
+            self, 'Select local Master HPDB', str(data_area.folder('downloads')),
             'Master databases (*.hp1 *.gz MasterHpdb_*);;All files (*)')
         if not master:
             return
-        parent = QFileDialog.getExistingDirectory(self, 'Choose parent directory for NEW export folder', str(Path.home()))
-        if not parent:
-            return
-        from PyQt6.QtWidgets import QInputDialog
-        folder, ok = QInputDialog.getText(self, 'New export folder name',
-                                          'New folder (must not already exist):', text='HPDB-Export')
-        if not ok or not folder:
-            return
-        if folder in ('.', '..') or '/' in folder or '\\' in folder:
-            QMessageBox.warning(self, 'Invalid name', 'Enter a simple folder name.')
-            return
-        destination = Path(parent) / folder
-        if destination.exists():
-            QMessageBox.warning(self, 'Export refused', 'Folder already exists.')
-            return
+        # v0.1.34: a new folder in the data folder's database/rebuilt, named after the archive and the time
+        stem = Path(master).name.removesuffix('.gz').removesuffix('.hp1')
+        destination = data_area.unique(data_area.folder('rebuilt'),
+                                       data_area.safe_name(f'HPDB {stem} {data_area.stamp()}'))
         if QMessageBox.question(self, 'Rebuild database to a folder',
-                'Generate 68 state files, master and hpdb.cfg in a NEW local folder?\n'
+                f'Generate 68 state files, master and hpdb.cfg in a new folder?\n\n{destination}\n\n'
                 'The scanner is not touched. This operation may take some time.') != QMessageBox.StandardButton.Yes:
             return
         try:
@@ -2705,11 +2724,10 @@ class ManagerWindow(ManageMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, QM
         except (OSError, UnicodeError, ValueError, EOFError) as exc:
             QMessageBox.critical(self, 'Bulk reconstruction failed', str(exc))
             return
-        QMessageBox.information(self, 'Database rebuild complete',
-            f"Created: {result['path']}\nState files: {result['states']}\n"
-            f"Records: {result['records']:,}\n"
-            f"hpdb.cfg SHA-256: {result['config_sha256']}\n\n"
-            'The scanner was not touched. To put a rebuilt database on the card use\nDatabase → Update Scanner\'s Master Database… (do not copy files by hand).')
+        data_area.show_saved(self, 'Database rebuild complete', Path(result['path']),
+            f"State files: {result['states']}, records: {result['records']:,}. The scanner was not touched; "
+            "to put a rebuilt database on the card use Database → Update Scanner's Master Database… "
+            "(do not copy files by hand).\n\nCreated in the SDS-Manager data folder:")
 
     def reconstruct_one_state(self):
         """Explicit offline export, never modifies source database or scanner."""
@@ -2717,7 +2735,7 @@ class ManagerWindow(ManageMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, QM
         from hpdb_state_reconstruction import reconstruct_state
         filename, _ = QFileDialog.getOpenFileName(
             self, 'Select local Master HPDB (uncompressed or gzip)',
-            str(__import__('pathlib').Path.home() / 'SDS100-Research'),
+            str(data_area.folder('downloads')),
             'Master databases (*.hp1 *.gz MasterHpdb_*);;All files (*)')
         if not filename:
             return
@@ -2725,29 +2743,21 @@ class ManagerWindow(ManageMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, QM
                                            'Enter numeric StateId:', 45, 1, 999999)
         if not ok:
             return
-        destination, _ = QFileDialog.getSaveFileName(
-            self, 'Export state file (new file only)',
-            str(__import__('pathlib').Path.home() / f's_{state_id:06d}_rebuilt.hpd'),
-            'HPD files (*.hpd)')
-        if not destination:
-            return
         from pathlib import Path
-        if Path(destination).exists():
-            QMessageBox.warning(self, 'Export refused', 'File already exists. Choose a new filename.')
-            return
+        # v0.1.34: into the data folder's database/rebuilt, never over an existing file
+        destination = data_area.unique(data_area.folder('rebuilt'), f's_{state_id:06d}_rebuilt.hpd')
         try:
             result = reconstruct_state(filename, state_id, destination)
         except (OSError, UnicodeError, ValueError, EOFError) as exc:
             QMessageBox.critical(self, 'State reconstruction failed', str(exc))
             return
-        QMessageBox.information(self, 'State file export complete',
-            f"Created: {result['path']}\nRecords: {result['records']:,}\n"
-            f"Bytes: {result['bytes']:,}\n\n"
-            'Single-state export for inspection. No scanner access.')
+        data_area.show_saved(self, 'State file export complete', Path(result['path']),
+            f"Records: {result['records']:,}, bytes: {result['bytes']:,}. Single-state export for inspection; "
+            "no scanner access.\n\nCreated in the SDS-Manager data folder:")
 
     def validate_master(self):
         filename, _ = QFileDialog.getOpenFileName(self, 'Select decompressed Master HPDB',
-                                                  str(__import__('pathlib').Path.home() / 'SDS100-Research'))
+                                                  str(data_area.folder('downloads')))
         if not filename:
             return
         try:
@@ -2772,7 +2782,7 @@ class ManagerWindow(ManageMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, QM
         """Read-only, bounded gzip inspection; never extracts or installs files."""
         filename, _ = QFileDialog.getOpenFileName(
             self, 'Select downloaded Uniden Master HPDB gzip archive',
-            str(__import__('pathlib').Path.home() / 'SDS100-Research'),
+            str(data_area.folder('downloads')),
             'Gzip archives (*.gz)')
         if not filename:
             return
@@ -2855,6 +2865,16 @@ APP_ID = "sds-manager"          # matches /usr/share/applications/sds-manager.de
 
 if __name__ == "__main__":
     configure_logging()
+    try:                                    # v0.1.34: one data folder; move the old database folder into it
+        import data_area
+        moved = data_area.migrate()
+        if moved['moved'] or moved['kept']:
+            import logging
+            logging.getLogger('data_area').warning('Moved %d item(s) into %s; left in place: %s',
+                                                   moved['moved'], data_area.AREA, moved['kept'])
+    except Exception:
+        import logging
+        logging.getLogger('data_area').exception('Could not move the old data folder')
     # v0.1.30: its own name and desktop entry, so the task manager doesn't group it with SDS100 Monitor
     # (both are python3), and the Plasma launcher brings the open window forward instead of starting another.
     sys.argv[0] = APP_ID

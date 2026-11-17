@@ -24,6 +24,8 @@ from scanner_list_sync import (is_list_file, INDEX_FILE, assess_new_hpd, assess_
 
 # Practical SDS100 USB identity established on the user's device. Not crypto.
 SDS100_USB = ('1965', '001c', 'uniden america corp.', 'sds100')
+SDS150_USB = ('1965', '001a', 'uniden america corp.', 'sds150')    # v0.1.38: seen on a real SDS150 (macOS fork)
+KNOWN_SCANNERS_USB = (SDS100_USB, SDS150_USB)
 MIN_FREE_MARGIN = 32 * 1024 * 1024
 
 
@@ -38,8 +40,8 @@ def _identity(scanner):
     observed = (evidence.get('vid', '').lower(), evidence.get('pid', '').lower(),
                 evidence.get('manufacturer', '').strip().lower(),
                 evidence.get('product_name', '').strip().lower())
-    if observed != SDS100_USB:
-        raise ValueError('USB identity does not match the previously observed SDS100.')
+    if observed not in KNOWN_SCANNERS_USB:
+        raise ValueError('USB identity does not match a previously observed SDS100 or SDS150.')
     if evidence.get('filesystem', '').lower() != 'vfat':
         raise ValueError('Expected an SDS100 FAT32/vfat filesystem.')
     if not evidence.get('serial_present'):

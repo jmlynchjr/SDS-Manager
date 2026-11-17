@@ -12,6 +12,22 @@ import scanner_first_write as writer
 from scanner_backup import backup_scanner as real_backup
 
 
+# v0.1.34: never write export-state.json into the real SDS-Manager data folder while testing
+import tempfile as _tempfile
+from unittest import mock as _mock
+_STATE = _tempfile.TemporaryDirectory()
+_STATE_PATCH = _mock.patch('export_state.state_path', lambda: Path(_STATE.name) / 'export-state.json')
+
+
+def setUpModule():
+    _STATE_PATCH.start()
+
+
+def tearDownModule():
+    _STATE_PATCH.stop()
+
+
+
 def hpd(freq='155000000'):
     fields = [''] * 18
     fields[0] = 'C-Freq'
@@ -90,6 +106,17 @@ class FirstWriteTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             writer.execute_first_write(self.local_config, self.scanner)
         self.assertEqual(self.scanner_file.read_bytes(), self.original)
+
+    def test_sds150_accepted(self):                          # v0.1.38: identity seen on a real SDS150
+        self.evidence.update(pid='001a', product_name='SDS150')
+        eligible, reason = writer.first_write_eligibility(self.local_config, self.scanner)
+        self.assertTrue(eligible, reason)
+        writer.execute_first_write(self.local_config, self.scanner)
+        self.assertEqual(self.scanner_file.read_bytes(), self.proposed)
+
+    def test_sds150_name_with_sds100_id_blocked(self):
+        self.evidence.update(pid='001c', product_name='SDS150')
+        self.assertFalse(writer.first_write_eligibility(self.local_config, self.scanner)[0])
 
     def test_bad_local_checksum_blocked(self):
         self.local_file.write_bytes(hpd('155005000'))

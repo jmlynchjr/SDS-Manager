@@ -5,7 +5,9 @@ from pathlib import Path
 import os, json, shutil, tempfile, hashlib, re
 from datetime import datetime, timezone
 
-ROOT = Path(os.environ.get('XDG_DATA_HOME', str(Path.home()/'.local/share'))).expanduser() / 'SDS100DatabaseFavoritesManager'
+# v0.1.34: one data folder for everything (data_area); the old SDS100DatabaseFavoritesManager folder
+# is moved into it at start and left as a link.
+from data_area import AREA as ROOT
 
 def paths():
     return {key: ROOT/key for key in ('database','favorites','history','manifests')}

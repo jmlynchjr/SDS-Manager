@@ -2,7 +2,7 @@
 
 *Formerly SDS100 Database & Favorites Manager.*
 
-A native Kubuntu (PyQt6) manager for the Uniden SDS100 scanner: update the system database, build and edit Favorites Lists, and change scanner settings, with every scanner write validated, backed up first and reversible. A Sentinel alternative for Linux.
+A native Kubuntu (PyQt6) manager for the Uniden SDS100 and SDS150 scanners: update the system database, build and edit Favorites Lists, and change scanner settings, with every scanner write validated, backed up first and reversible. A Sentinel alternative for Linux.
 
 **New here? Read the [user manual](docs/user-manual.md)** (also as a PDF with each [release](https://github.com/jmlynchjr/SDS-Manager/releases)). The shorter [USER_GUIDE.md](USER_GUIDE.md) is the guide shown in the program (Help → User Guide).
 
@@ -40,4 +40,4 @@ The program's RadioReference app key is not in this source. The .deb packages on
 
 ## Tests
 
-`python3 -m unittest discover -s .` — about 600 tests. One module (`test_site_settings_regression`) needs PyQt6 and errors where it is not installed; everything else is pure Python.
+`python3 -m unittest discover -s .` — about 670 tests. One module (`test_site_settings_regression`) needs PyQt6 and errors where it is not installed; everything else is pure Python.

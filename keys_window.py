@@ -170,7 +170,8 @@ class KeysWindow(QDialog):
         self.profile_choice.setToolTip('Saved sets of which keys are On and which lists are monitored')
         profiles.addWidget(self.profile_choice)
         for label, slot in (('Use', self._use_profile), ('Save Current as Profile…', self._save_profile),
-                            ('Delete', self._delete_profile)):
+                            ('Delete', self._delete_profile), ('Import…', self._import_profiles),
+                            ('Export…', self._export_profiles)):
             button = QPushButton(label)
             button.clicked.connect(slot)
             profiles.addWidget(button)
@@ -428,6 +429,145 @@ class KeysWindow(QDialog):
             km.write_monitor_file(self.folder, self._title())
             self._fill_profiles()
 
+    # ---- import and export scan profiles (v0.1.33) -------------------------------------------------------
+    def _choose_profiles(self, title, text, names, replace_option=False):
+        """A tick list of profile names. (chosen names, replace) or None when cancelled."""
+        from PyQt6.QtWidgets import QCheckBox
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title)
+        dialog.resize(460, 420)
+        layout = QVBoxLayout(dialog)
+        label = QLabel(text)
+        label.setWordWrap(True)
+        layout.addWidget(label)
+        listing = QListWidget()
+        for name in sorted(names, key=str.casefold):
+            item = QListWidgetItem(name)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            listing.addItem(item)
+        layout.addWidget(listing, 1)
+        replace = QCheckBox('Replace profiles here that have the same name')
+        replace.setToolTip('Otherwise an imported profile whose name is already used is saved as "Name (2)"')
+        if replace_option:
+            layout.addWidget(replace)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        chosen = [listing.item(i).text() for i in range(listing.count())
+                  if listing.item(i).checkState() == Qt.CheckState.Checked]
+        return chosen, replace_option and replace.isChecked()
+
+    def _import_profiles(self):
+        import datetime
+        from pathlib import Path
+        from PyQt6.QtWidgets import QFileDialog
+        import scan_profiles_io as spio
+        sources = ('Another saved configuration', 'A scan profiles file (.json)',
+                   'The scanner\'s current keys (as a new profile)')
+        source, ok = QInputDialog.getItem(self, 'Import Scan Profiles', 'Import scan profiles from:',
+                                          list(sources), 0, False)
+        if not ok:
+            return
+        try:
+            if source == sources[0]:
+                from scanner_configurations import list_configurations
+                here = Path(self.folder).resolve()
+                configs = [(f, d) for f, d in list_configurations() if Path(f).resolve() != here]
+                configs = [(f, d) for f, d in configs if km.load_profiles(f)]
+                if not configs:
+                    QMessageBox.information(self, 'Import Scan Profiles',
+                                            'No other saved configuration has scan profiles.')
+                    return
+                labels = [f'{d.get("name", Path(f).name)} ({len(km.load_profiles(f))} profile(s))'
+                          for f, d in configs]
+                choice, ok = QInputDialog.getItem(self, 'Import Scan Profiles', 'From which configuration?',
+                                                  labels, 0, False)
+                if not ok:
+                    return
+                incoming, names = spio.from_configuration(configs[labels.index(choice)][0])
+            elif source == sources[1]:
+                import data_area
+                path, _ = QFileDialog.getOpenFileName(self, 'Import Scan Profiles', str(data_area.folder('exports')),
+                                                      'Scan profiles (*.json);;All files (*)')
+                if not path:
+                    return
+                incoming, names = spio.read_file(path)
+            else:
+                card = self.main.pick_scanner_folder('Import Scan Profiles — choose the SDS100 SD card (read only)')
+                if not card:
+                    return
+                default = 'Scanner ' + datetime.date.today().isoformat()
+                name, ok = QInputDialog.getText(self, 'Import Scan Profiles',
+                                                'Save the scanner\'s current keys as the profile:', text=default)
+                name = name.strip()
+                if not ok or not name:
+                    return
+                incoming, names = spio.from_scanner(card, name)
+        except (OSError, ValueError, UnicodeError) as exc:
+            QMessageBox.warning(self, 'Import Scan Profiles', str(exc))
+            return
+        replace = False
+        if source != sources[2]:
+            picked = self._choose_profiles('Import Scan Profiles', 'Profiles to import:', list(incoming), True)
+            if not picked or not picked[0]:
+                return
+            chosen, replace = picked
+            incoming = {n: incoming[n] for n in chosen}
+        elif name in self.profiles:
+            replace = QMessageBox.question(
+                self, 'Import Scan Profiles', f'Replace the profile {name}?',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes
+        try:
+            target = spio.list_names(self.folder)
+            merged, report = spio.merge(self.profiles, incoming, names, target, replace)
+            km.save_profiles(self.folder, merged)
+        except (OSError, ValueError, UnicodeError) as exc:
+            QMessageBox.warning(self, 'Import Scan Profiles', str(exc))
+            return
+        km.write_monitor_file(self.folder, self._title())
+        self._fill_profiles()
+        if report:
+            self.profile_choice.setCurrentText(report[-1]['saved_as'])
+        lines = []
+        for r in report:
+            line = r['saved_as'] + ('' if r['saved_as'] == r['name'] else f' (from {r["name"]})')
+            if r['left_out']:
+                line += '\n    not in this configuration, left out: ' + ', '.join(r['left_out'][:8]) + \
+                        (f' and {len(r["left_out"]) - 8} more' if len(r['left_out']) > 8 else '')
+            lines.append(line)
+        QMessageBox.information(self, 'Import Scan Profiles',
+                                'Imported:\n\n' + '\n'.join(lines) +
+                                '\n\nChoose one and press Use, then Apply, to put it into the configuration. '
+                                'Lists a profile doesn\'t cover are left as they are.')
+        self.summary.setText(f'Imported {len(report)} scan profile(s).')
+
+    def _export_profiles(self):
+        from pathlib import Path
+        from PyQt6.QtWidgets import QFileDialog
+        import scan_profiles_io as spio
+        if not self.profiles:
+            QMessageBox.information(self, 'Export Scan Profiles', 'This configuration has no scan profiles yet. '
+                                    'Use Save Current as Profile… first.')
+            return
+        picked = self._choose_profiles('Export Scan Profiles', 'Profiles to export:', list(self.profiles))
+        if not picked or not picked[0]:
+            return
+        import data_area                          # v0.1.34: straight into the data folder's exports
+        path = str(data_area.unique(data_area.folder('exports'),
+                                    data_area.safe_name(f'{self._title()} scan profiles') + '.json'))
+        try:
+            spio.write_file(path, {n: self.profiles[n] for n in picked[0]}, spio.list_names(self.folder),
+                            self._title())
+        except (OSError, ValueError, UnicodeError) as exc:
+            QMessageBox.warning(self, 'Export Scan Profiles', str(exc))
+            return
+        self.summary.setText(f'Exported {len(picked[0])} scan profile(s).')
+        data_area.show_saved(self, 'Export Scan Profiles', path)
+
     # ---- spreadsheet and key card (v0.1.11) -------------------------------------------------------------
     def _title(self):
         from pathlib import Path
@@ -440,26 +580,28 @@ class KeysWindow(QDialog):
         if self.model.describe_changes():
             QMessageBox.information(self, 'Save Spreadsheet', 'The spreadsheet shows the numbers as they are in '
                                     'this window, including changes you haven\'t applied yet.')
-        start = str(Path.home() / f'{self._title()} keys and tags.ods')
-        path, _ = QFileDialog.getSaveFileName(self, 'Save Spreadsheet', start,
-                                              'LibreOffice Calc (*.ods);;Excel (*.xlsx)')
-        if not path:
-            return
-        if not path.lower().endswith(('.ods', '.xlsx')):
-            path += '.ods'
+        import data_area                          # v0.1.34: straight into the data folder's exports
+        name = data_area.safe_name(f'{self._title()} keys and tags')
+        exports = data_area.folder('exports')
+        path = str(exports / (name + '.ods'))
+        n = 2
+        while Path(path).exists() or Path(path).with_suffix('.xlsx').exists():
+            path = str(exports / f'{name} ({n}).ods')     # .ods may be saved as .xlsx: keep both free
+            n += 1
         try:
             written = keys_export.write_workbook(self.model, path, self._title())
         except (keys_export.ExportError, OSError) as exc:
             QMessageBox.warning(self, 'Save Spreadsheet', str(exc))
             return
-        note = '' if str(written) == path else '\n\nLibreOffice isn\'t installed, so it was saved as .xlsx (Calc opens it).'
-        QMessageBox.information(self, 'Save Spreadsheet', f'Saved {written}.{note}')
+        note = '' if str(written) == path else 'LibreOffice isn\'t installed, so it was saved as .xlsx (Calc opens it). '
+        data_area.show_saved(self, 'Save Spreadsheet', written, note + 'Saved in the SDS-Manager data folder:')
 
     def _read_sheet(self):
         import keys_export
         from pathlib import Path
         from PyQt6.QtWidgets import QFileDialog
-        path, _ = QFileDialog.getOpenFileName(self, 'Read Spreadsheet', str(Path.home()),
+        import data_area
+        path, _ = QFileDialog.getOpenFileName(self, 'Read Spreadsheet', str(data_area.folder('exports')),
                                               'Spreadsheets (*.ods *.xlsx)')
         if not path:
             return
@@ -482,12 +624,9 @@ class KeysWindow(QDialog):
         from PyQt6.QtGui import QPageLayout, QPageSize, QPdfWriter, QTextDocument
         from PyQt6.QtCore import QMarginsF
         from PyQt6.QtWidgets import QFileDialog
-        path, _ = QFileDialog.getSaveFileName(self, 'Key Card', str(Path.home() / f'{self._title()} key card.pdf'),
-                                              'PDF (*.pdf)')
-        if not path:
-            return
-        if not path.lower().endswith('.pdf'):
-            path += '.pdf'
+        import data_area                          # v0.1.34: straight into the data folder's exports
+        path = str(data_area.unique(data_area.folder('exports'),
+                                    data_area.safe_name(f'{self._title()} key card') + '.pdf'))
         document = QTextDocument()
         document.setHtml(keys_export.card_html(self.model, self._title()))
         writer = QPdfWriter(path)
@@ -495,7 +634,7 @@ class KeysWindow(QDialog):
         writer.setPageMargins(QMarginsF(12, 12, 12, 12), QPageLayout.Unit.Millimeter)
         printer = getattr(document, 'print', None) or getattr(document, 'print_')
         printer(writer)
-        QMessageBox.information(self, 'Key Card', f'Saved {path}.')
+        data_area.show_saved(self, 'Key Card', path)
 
     def _clear_selected(self):
         items = self._all_selected()

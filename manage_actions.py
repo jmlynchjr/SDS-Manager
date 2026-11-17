@@ -361,7 +361,9 @@ class ManageMixin:
         folder = self._config_folder(title)
         if folder is None:
             return
-        path, _ = QFileDialog.getOpenFileName(self, title, str(Path.home()), 'SDS100 Favorites List (*.hpd)')
+        import data_area
+        path, _ = QFileDialog.getOpenFileName(self, title, str(data_area.folder('exports')),
+                                              'SDS100 Favorites List (*.hpd)')
         if not path:
             return
         path = Path(path)

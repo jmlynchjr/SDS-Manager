@@ -535,6 +535,7 @@ class FavoritesSettingsDialog(QDialog):
             menu.addAction('Delete System…\tDel', self._delete_selected_system)
             menu.addSeparator()
             menu.addAction('Add Unit Names from SDS100 Monitor…', self._add_monitor_unit_names)
+            menu.addAction('Update from RadioReference…', lambda: self._update_from_rr(entry_index))
             menu.addSeparator()
             menu.addAction('Expand All Departments', lambda: self._set_tree_children_expanded(item, True))
             menu.addAction('Collapse All Departments', lambda: self._set_tree_children_expanded(item, False))
@@ -567,6 +568,16 @@ class FavoritesSettingsDialog(QDialog):
         for index in range(root.childCount()):
             root.child(index).setExpanded(expanded)
         root.setExpanded(True)
+
+    def _update_from_rr(self, entry_index, source='rr'):
+        """This system against RadioReference as it is now (v0.1.35): Favorites → Update Favorites List from
+        RadioReference…, with only this system ticked."""
+        window = self.workspace.window()
+        update = getattr(window, 'update_list_from_rr', None)
+        if update is None:
+            return
+        if update(entry_index, self, self.draft_name, source):
+            self._populate_tree()
 
     def _add_monitor_unit_names(self):
         """Unit ID names given in SDS100 Monitor onto this list's trunked systems, as one Undo step (v0.1.19)."""

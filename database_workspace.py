@@ -676,10 +676,12 @@ class DatabaseWorkspace(QWidget):
 
     def compare_hpdb(self):
         """Read-only comparison of two local Master HPDB copies."""
-        first = QFileDialog.getExistingDirectory(self, "Select existing HPDB folder")
+        import data_area
+        start = str(data_area.folder('versions'))
+        first = QFileDialog.getExistingDirectory(self, "Select existing HPDB folder", start)
         if not first:
             return
-        second = QFileDialog.getExistingDirectory(self, "Select candidate HPDB folder")
+        second = QFileDialog.getExistingDirectory(self, "Select candidate HPDB folder", start)
         if not second:
             return
         try:
@@ -708,6 +710,9 @@ class DatabaseWorkspace(QWidget):
             "authenticity, or newer database release. Neither folder was modified.")
 
     def import_database(self):
+        host = self.window()                      # v0.1.34: one database store, in the data folder
+        if hasattr(host, 'import_managed_database'):
+            return host.import_managed_database()
         folder = QFileDialog.getExistingDirectory(
             self, "Select complete Uniden HPDB folder (offline import)")
         if not folder:
@@ -759,7 +764,9 @@ class DatabaseWorkspace(QWidget):
             "Direct download from Uniden is not available yet.")
 
     def open_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, 'Choose Uniden database folder or scanner root')
+        import data_area
+        folder = QFileDialog.getExistingDirectory(self, 'Choose Uniden database folder or scanner root',
+                                                  str(data_area.folder('versions')))
         if folder:
             self.open_database_path(folder)
 
@@ -1371,11 +1378,14 @@ class DatabaseWorkspace(QWidget):
                 continue
             break
         if new_list_name is not None:
-            self._add_to_new_list(section, new_list_name)
+            made = self._add_to_new_list(section, new_list_name)
+            if made:
+                self._remember_rr_link(made, section, source)
             return
         draft = self.drafts[self.current_draft]
         if favorites_clipboard.is_native(draft):
-            self._add_to_native_list(section, draft)
+            if self._add_to_native_list(section, draft):
+                self._remember_rr_link(self.current_draft, section, source)
             return
         try:
             existing_entry, matched_by_name = find_existing_system(
@@ -1569,6 +1579,7 @@ class DatabaseWorkspace(QWidget):
         self.status.setText(f'Added to {self.current_draft}: ' + text.splitlines()[0] +
                             ' Save Configuration to keep it.')
         self.refresh_draft()
+        return True
 
     def _choose_database_records(self, section):
         """Select conventional channels, or trunked sites and talkgroups. Returns (records, summary, made) in
@@ -1640,6 +1651,25 @@ class DatabaseWorkspace(QWidget):
         if name in self.drafts:
             self.draft_choice.setCurrentText(name)
         self.refresh_draft()
+        return name
+
+    def _remember_rr_link(self, draft_name, section, source):
+        """A system added from RadioReference remembers where it came from, for Update from RadioReference
+        (v0.1.35). Only RadioReference's IDs are kept."""
+        import rr_links
+        key = rr_links.parse_source(source)
+        entries = self.drafts.get(draft_name) or []
+        if key is None or not entries:
+            return
+        try:
+            configuration = Path(self.window().active_scanner_configuration).name
+            list_file = Path(entries[0].get('source_path') or '').name
+            region = self.region_choice.currentData()
+            state = region[1] if isinstance(region, tuple) and region and region[0] == 'rr-state' else None
+            rr_links.remember(configuration, list_file, section['records'], key, section.get('name', ''),
+                              state, self.county_choice.currentData() if state is not None else None)
+        except (AttributeError, TypeError, OSError, ValueError):
+            pass                                   # a convenience only: never stop an addition over it
 
     def configure_columns(self, tree, key):
         dialog = QDialog(self)

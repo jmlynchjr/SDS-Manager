@@ -32,11 +32,11 @@ Your Favorites Lists, settings and every other file are not touched by a databas
 What it checks before writing:
 - the file name is for exactly your model (an SDS100 never gets SDS100E or SDS200 firmware), at most one main and one sub file;
 - the size is plausible and the file is not a saved web page (a failed download);
-- the card is the identified SDS100 over USB (the same check as every other write), with enough free space;
+- the card is the identified SDS100 or SDS150 over USB (the same check as every other write), with enough free space;
 - a main version older than the scanner's needs a second confirmation;
 - firmware files (`.bin`, `.firm`) already waiting in the firmware folder are listed and removed first (you can keep them), because the scanner would try to install them too. Other files there, such as the scanner's `CityTable` and `ZipTable` location data, are left alone;
 
-Downloads are kept in `~/.local/share/SDS100DatabaseFavoritesManager/firmware/`, with a receipt for each write in `firmware/receipts/`. The card does not record the sub firmware version, so the window can't say whether a sub file is newer; the scanner shows both versions on its own screen.
+Firmware files are kept in the data folder's `firmware/`, with a receipt for each write in `firmware/receipts/`. The card does not record the sub firmware version, so the window can't say whether a sub file is newer; the scanner shows both versions on its own screen.
 
 ### Create a Favorites List from the database
 1. **File → Open Scanner Configuration…** and choose your saved configuration.
@@ -56,7 +56,7 @@ Everything you edit belongs to the **open scanner configuration**: the Favorites
 - **Edit Favorites List…** (Ctrl+E) opens the list editor for the selected list.
 - **Duplicate Favorites List…** copies a list under a new name. **Copy Favorites List to Another Configuration…** copies it into another saved configuration. Copies start with their quick key, number tag and startup keys Off, so they never clash with the lists already there. A list with unsaved changes offers to save first, so the copy includes them.
 - **Reorder Favorites Lists…**: drag the lists, or use Up and Down. The scanner shows them in that order after export.
-- **Import Favorites List File (.hpd)…** adds a list file from anywhere (another scanner's card, a backup, a friend) to the open configuration, after the same checks as any new list. **Save Favorites List as File (.hpd)…** writes the selected list to a file.
+- **Import Favorites List File (.hpd)…** adds a list file from anywhere (another scanner's card, a backup, a friend) to the open configuration, after the same checks as any new list. **Save Favorites List as File (.hpd)…** writes the selected list to a file in the data folder's `exports/`.
 - **Delete Favorites List…** removes a list; the file is kept in the configuration's backups.
 
 In the list editor (right-click in the left pane):
@@ -111,15 +111,19 @@ SDS-Manager shares the saved configuration's keys, number tags and scan profiles
   - **Use** sets them from a profile; **Apply** keeps them, then Export to Scanner sends them.
   - Profiles go by list and system names. Lists added after a profile was saved are left as they are, and the window names them.
   - Profiles are kept on your computer with the configuration library, not on the scanner.
+  - **Import…** (0.1.33) brings in scan profiles from **another saved configuration**, from **a scan profiles file**, or makes a new profile from **the scanner's current keys** (which keys are On and which lists are monitored on the SD card, read only). Tick the profiles you want; a name already used here is saved as *Name (2)* unless you tick *Replace profiles here that have the same name*.
+    - Lists are matched by name first, so a profile still fits when the lists have different file numbers in the two configurations; otherwise by file number. Lists that aren't in this configuration are left out, and the import says which.
+    - Imported profiles are saved straight away and shared with SDS100 Monitor. **Use** then **Apply** puts one into the configuration, as for any profile.
+  - **Export…** saves the profiles you tick to a `.json` file in the data folder's `exports/`, with the list names, for another configuration or another PC.
   - **SDS100 Monitor** (1.1.68 or later) can apply a profile to the scanner while it runs: Scanner Tools → Quick Keys → APPLY PROFILE TO SCANNER.
-- **Save Spreadsheet…** writes a LibreOffice Calc spreadsheet of every key and tag:
+- **Save Spreadsheet…** writes a LibreOffice Calc spreadsheet of every key and tag (in the data folder's `exports/`):
   - It has sheets for Favorites Lists, Systems, Departments and Channels, plus a 00–99 map of Favorites List numbers.
   - Numbers go in yellow cells. Check columns turn red when two items in the same set share a number.
   - It needs `python3-openpyxl`. Without LibreOffice installed, it is saved as .xlsx, which Calc also opens.
 - **Read Spreadsheet…** brings numbers you edited in Calc back into the window as changes to check and Apply. Nothing is written until you Apply.
   - Rows that no longer match the configuration, and values that aren't whole numbers, are skipped and listed.
   - Keep the hidden Ref column, and don't add or move rows.
-- **Key Card (PDF)…** makes a printable page to keep with the scanner:
+- **Key Card (PDF)…** makes a printable page to keep with the scanner (in `exports/`):
   - Favorites List keys and tags, and whether each list is scanned.
   - For each monitored list, its system keys and tags and its department keys.
   - A directory of channel number tags.
@@ -151,6 +155,18 @@ Dropdowns and text boxes can be changed; reserved or unsupported fields are read
 - **Change several channels at once:** in the editor, select rows (Ctrl+click or Shift+click the row numbers) and choose **Change Selected…**. Pick Avoid, Attenuator, Delay or Volume Offset and a value; confirm once. The whole change is one Undo step.
 - **Drag and drop:** drop an SD card folder on the main window to import it from the scanner, or drop a `.hpd` file to inspect it read-only.
 
+### Compare with the scanner
+**File → Compare Configuration with Scanner…** (0.1.32) shows what is different between the open configuration and the SD card, without writing anything to either. Choose the card (the detected scanner is offered first); if lists have unsaved changes, save them first or compare the saved version.
+
+- Every Favorites List is shown as **Same**, **Different**, **Only in the configuration** (Export would add it) or **Only on the scanner**, with its systems, departments, channels and talkgroups counted on each side. *Hide Favorites Lists that are the same* is ticked when anything differs.
+- Open a list that differs to see its systems, sites, departments, channels, talkgroups and site frequencies that are only on one side, and the ones that changed, field by field (Delay, Avoid, Service Type, Number Tag, …), with the **Scanner** value beside the **Configuration** value. Exporting would change the scanner to the Configuration value.
+- An avoid set on the scanner or from SDS100 Monitor is marked *changed on the scanner* when SDS-Manager knows the avoids from the last time the two matched.
+- Favorites List settings (name, quick key, number tag, monitor, startup keys), the list order, the scanner settings in profile.cfg, discovery.cfg and the date of each master database are compared too.
+- **Copy Report** and **Save Report…** give the whole comparison as text (Save Report puts it in the data folder's `reports/`). **Export to Scanner…** closes the window and starts the usual export, preview first.
+
+### Compare two configurations
+**File → Compare Two Configurations…** (0.1.38) compares two saved configurations, or a configuration with a scanner backup (the copy of the card SDS-Manager makes before every write). Pick the **Configuration** and what to **Compare with**: the open configuration comes first, then the others by name, then the scanner backups, newest first. The same window as above shows what is only in one, only in the other, or different, with the two names as the column headings; **Copy Report** and **Save Report…** work the same. Nothing is written to either. If the open configuration has unsaved changes, you are offered to save them first.
+
 ### Export to the scanner
 **File → Export to Scanner…** compares the saved local configuration with the card. The preview starts with a plain-language list of what will change (new, removed and edited lists, and changed settings), followed by the technical file-by-file details. If it says *READY*, confirm to run the controlled write. If it says *BLOCKED*, the reason is shown and nothing has changed.
 
@@ -180,10 +196,11 @@ Dropdowns and text boxes can be changed; reserved or unsupported fields are read
 
 - The password (and a key you entered yourself) is kept in **KDE Wallet** (through `python3-keyring`), never in a settings file; your username is kept in the settings. Without a secret store it is kept only until SDS-Manager closes. **Forget Saved Password** removes it.
 - The key is never in the source code; the release packages include it.
-- **Tools → Search Frequency in RadioReference…** (0.1.28) shows what uses a frequency: conventional frequencies in a county (**Search County**) or the whole state (**Search Whole State**); choose the **State** and **County** in the window (they start as Database Contents' choice), and, with **Include trunked site frequencies** ticked, the site frequencies of the area's trunked systems. A whole state with trunked sites takes a while the first time; sites stay in memory until SDS-Manager closes. **Add to Favorites List…** puts a conventional result into a list. SDS100 Monitor can open it for the frequency it is hearing.
 - SDS-Manager talks to RadioReference directly from your computer, always over HTTPS.
 - RadioReference data is used only to build and update the Favorites Lists of your own scanner; only what you add is kept, in your configuration.
-- Updating existing Favorites Lists from RadioReference, naming talkgroups from it and looking up unknown talkgroups come in the next versions.
+- **Tools → Search Frequency in RadioReference…** (0.1.28) shows what uses a frequency: conventional frequencies in a county (**Search County**) or the whole state (**Search Whole State**); choose the **State** and **County** in the window (they start as Database Contents' choice), and, with **Include trunked site frequencies** ticked, the site frequencies of the area's trunked systems. A whole state with trunked sites takes a while the first time; sites stay in memory until SDS-Manager closes. **Add to Favorites List…** puts a conventional result into a list. SDS100 Monitor can open it for the frequency it is hearing.
+- **Favorites → Update Favorites List from RadioReference…** (0.1.35; also right-click a system in the list editor → **Update from RadioReference…**) compares the list's systems with RadioReference as it is now: talkgroup and channel names, service types, tones, timeslots, new and removed talkgroups and channels, site frequencies, NACs, channel numbers and new sites. Each difference has a tick box; the suggested ones are ticked, while name changes you may have made yourself, new departments, new sites and deletions are not. Only ticked changes are made, as one Undo step; quick keys, number tags, avoids and other settings stay as they are. A system added from RadioReference remembers where it came from; for older ones, **CHOOSE…** picks its RadioReference system once (kept as IDs only in the data folder's `rr-links.json`).
+- **Favorites → Check All Lists from RadioReference…** (0.1.38) checks every Favorites List in the configuration at once, in one window, with each list's differences under its name. A system in several lists is read once; all the changes are one Undo step.
 
 ### SDS100 Monitor link
 With **SDS100 Monitor** (1.1.76 or later) installed:
@@ -204,12 +221,23 @@ With **SDS100 Monitor** (1.1.76 or later) installed:
 
 ## Where things are stored
 
-| What | Where |
+Everything SDS-Manager makes is kept in one data folder, `~/.local/share/sds100-database-favorites-manager/` (**File → Storage → Open Data Folder…**). It never asks where to save; each message that saves a file names it and has **Open Folder**.
+
+| What | Where in the data folder |
 |---|---|
-| Local configurations (copies of your card) | the application's library (*File → Open Managed Data Folder…* shows the data folder) |
-| Rebuilt databases | `~/.local/share/SDS100DatabaseFavoritesManager/database/` |
-| Firmware files and write receipts | `~/.local/share/SDS100DatabaseFavoritesManager/firmware/` |
-| Scanner backups | `~/.local/share/sds100-database-favorites-manager/scanner-backups/<timestamp>/` |
+| Database archives (downloaded, or a copy of the one you chose) | `database/downloads/` |
+| Rebuilt databases (`current` is the one in use) | `database/versions/` |
+| Rebuild Full Database and Export One State File (Database → Advanced) | `database/rebuilt/` |
+| Firmware files and write receipts | `firmware/` |
+| Local configurations (copies of your card) | `scanner-configurations/` |
+| Scanner backups | `scanner-backups/<timestamp>/` |
+| Scan profiles | `scan-profiles/` |
+| Favorites List files (.hpd), exported scan profiles, Keys & Tags spreadsheets and key cards | `exports/` |
+| Compare with Scanner reports | `reports/` |
+
+Files are never overwritten: a second file with the same name is saved as *Name (2)*. Settings stay in `~/.config/sds100-database-favorites-manager/` and the log in `~/.local/state/sds100-database-favorites-manager/`, where Linux keeps them.
+
+Before 0.1.34 the databases and firmware were in a second folder, `~/.local/share/SDS100DatabaseFavoritesManager/`. SDS-Manager moves them into the data folder the first time it starts and leaves a link with the old name, so SDS100 Monitor and anything else still using that path finds the same files. If both folders had a file with the same name, the old one is left where it was.
 
 Rebuilt database folders are named `HPDB-Experimental-<date>` for historical reasons; they are ordinary, verified-complete database versions.
 
@@ -227,7 +255,7 @@ Each backup folder holds `BCDx36HP/` (the original files), `manifest.json` (ever
 
 **A list or the database looks empty on the card right after writing.** Almost always the card was powered off before it finished unmounting. Run the export again, wait for the card to be ejected, then power on.
 
-**Export says BLOCKED.** Read the reason. Typical causes: the scanner is not the recognised SDS100 USB device, the card is read-only or too full, or a file on the card changed since you opened the configuration (open a fresh copy with *Import from Scanner…*).
+**Export says BLOCKED.** Read the reason. Typical causes: the scanner is not a recognised SDS100 or SDS150 USB device, the card is read-only or too full, or a file on the card changed since you opened the configuration (open a fresh copy with *Import from Scanner…*).
 
 **After a firmware update the scanner doesn't start or shows an error.** The scanner checks firmware before installing it and refuses a damaged or wrong file, and Uniden users report its boot loader is protected. Turn it off and on; if it keeps trying, connect it in mass-storage mode, delete everything in `BCDx36HP/firmware`, eject and start again. Write the firmware again from **Update Scanner Firmware…** if needed.
 

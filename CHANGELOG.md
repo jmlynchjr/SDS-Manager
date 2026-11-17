@@ -1,3 +1,67 @@
+## v0.1.38 — Check all lists, compare two configurations, SDS150
+
+- **New: Favorites → Check All Lists from RadioReference…** checks every Favorites List in the configuration in one window: each linked system of each list, with the differences grouped under the list they belong to.
+  - The same tick boxes, suggested ticks and safety rules as Update Favorites List; a system that is in several lists is read from RadioReference only once.
+  - Systems that are not linked yet are listed with **CHOOSE…**, as before. Lists made only of database entries (not scanner lists) are skipped.
+  - All the changes, in every list, are one Undo step, and the window offers to save the configuration.
+- **New: File → Compare Two Configurations…** compares two configurations you have saved, or a configuration with one of the scanner backups SDS-Manager made before a write. Choose the two (the open configuration is offered first, then the others by name, then the scanner backups, newest first); the comparison window is the one from Compare Configuration with Scanner, with the two names as the column headings, and **Copy Report** and **Save Report…**. Nothing is written to either side.
+- **SDS150 accepted for writes.** The USB check before every write to the card now knows the SDS150's identity as well as the SDS100's (confirmed on a real SDS150, from the macOS fork).
+- This public release also carries everything since 0.1.36; 0.1.37 was a personal-build release.
+- New tests (13).
+
+## v0.1.36 — Update from RadioReference: readable windows
+
+- **Fixed: the State, County and System dropdowns in the RadioReference system chooser were squeezed** until their text was cut off, and the CHOOSE… buttons in Update from RadioReference were clipped. Both windows now size themselves to their contents, with the theme's padding.
+- The systems table shows up to five systems before it scrolls, without row numbers.
+
+## v0.1.35 — Update a Favorites List from RadioReference
+
+- **New: Favorites → Update Favorites List from RadioReference…** (also right-click a system in the list editor → **Update from RadioReference…**) compares the systems of a Favorites List with RadioReference as it is now, and lets you choose which changes to make:
+  - **Trunked systems:** talkgroup names; talkgroup service type and DMR timeslot; new talkgroups; talkgroups no longer on RadioReference (or now fully encrypted); site frequencies added and removed; site NAC, channel numbers (LCN) and colour codes / RAN; new sites; sites not on RadioReference.
+  - **Conventional systems:** channel names; modulation, tone / NAC / colour code and service type; new channels; channels no longer on RadioReference.
+  - Every change has a tick box. Ticked to begin with: new talkgroups and channels for departments the list already has, service types, tones, site frequencies, NACs and channel numbers, and names that were never chosen (empty, a bare number, "TGID 1234" or the frequency). Not ticked: other name changes (they may be your own), new departments, new sites, and deleting anything. **TICK SUGGESTED**, **TICK ALL** and **UNTICK ALL**.
+  - Only what you tick changes. Quick keys, number tags, avoids, alerts, delays, locations and everything else stay as they are. New items come in with RadioReference's values and the scanner's defaults (quick keys and number tags Off), like Add to Favorites; clashing numbers go to the next free ones.
+  - A department never loses its last channel or talkgroup, a site its last frequency, or a system its last site; anything held back is listed.
+  - All the changes are one Undo step in the open configuration, and the window offers to save the configuration. The scanner isn't touched until Export to Scanner.
+- **Each system remembers its RadioReference system.** Systems added from RadioReference (Add to Favorites, new lists) are linked from now on; for older ones, **CHOOSE…** picks the state, county and system once (the system with the same name is chosen for you). Links are kept in the data folder as `rr-links.json`, with only RadioReference's IDs and the system's name; RadioReference's data is read live and never stored.
+- Works in both builds; it needs your RadioReference Premium sign-in (Tools → RadioReference Account…).
+- The copies of the change log and user guide in /usr/share/doc are up to date again (they had stayed at an older version).
+- New tests (23).
+
+## v0.1.34 — One data folder
+
+- **Everything SDS-Manager makes now goes in one data folder**, `~/.local/share/sds100-database-favorites-manager/`, and it no longer asks where to save:
+  - database archives (**Check / Download Uniden Master HPDB** in the personal build; in the public build a copy of the archive you choose) in `database/downloads/`;
+  - **Rebuild Full Database** and **Export One State File** in `database/rebuilt/`, named after the archive or state;
+  - **Save Favorites List as File (.hpd)**, scan profile **Export**, Keys & Tags **Save Spreadsheet** and **Key Card** in `exports/`; Compare with Scanner **Save Report** in `reports/`.
+  - Each message names the file and has **Open Folder**. Nothing is overwritten: a second file with the same name becomes *Name (2)*.
+- **The old second folder is merged in.** Databases and firmware were in `~/.local/share/SDS100DatabaseFavoritesManager/`; they are moved into the data folder the first time 0.1.34 starts, and the old name is left as a link so SDS100 Monitor still finds them.
+- **Import Local HPDB…** (Database menu) now imports into the data folder like *File → Storage → Import Existing Database into Managed Storage…*, instead of a separate `~/SDS100MonitorData/HPDB` copy.
+- File choosers for files you bring in (archives to validate, .hpd lists, profile files, spreadsheets) start in the matching data folder.
+- **File → Storage → Open Data Folder…** (was Open Managed Data Folder…).
+- Two older tests wrote `export-state.json` into the real data folder; they now use a temporary one.
+- New tests (9).
+
+## v0.1.33 — Import and export scan profiles
+
+- **New: Import… and Export… for scan profiles** in Favorites → Keys & Tags (Scan profile row).
+  - **Import** from another saved configuration, from a scan profiles file, or from the scanner's current keys (a new profile of which keys are On and which lists are monitored on the SD card; read only).
+  - Lists are matched by name, then by file number, so profiles carry over when the file numbers differ. Lists that aren't in this configuration are left out and named in the result.
+  - Choose which profiles to bring in; names already used get " (2)" unless you choose to replace them.
+  - **Export** writes the chosen profiles, with their list names, to a .json file.
+  - Imported profiles are shared with SDS100 Monitor straight away.
+- New tests (13).
+
+## v0.1.32 — Compare the open configuration with the scanner
+
+- **New: File → Compare Configuration with Scanner…** shows what differs between the open configuration and the SD card. Read only: nothing is written to the scanner or the configuration.
+  - Each Favorites List: same, different, only in the configuration or only on the scanner, with counts of systems, departments, channels and talkgroups on each side.
+  - Inside a list that differs: the systems, sites, departments, channels, talkgroups and site frequencies only on one side, and the ones changed, field by field (scanner value → configuration value). Avoids made on the scanner are marked as such when SDS-Manager knows the avoids from the last time the two matched.
+  - Favorites List settings, list order, scanner settings (profile.cfg), discovery.cfg and the master database dates.
+  - Copy Report, Save Report…, and Export to Scanner… straight from the window.
+  - Unsaved list changes: save first, or compare the saved version.
+- New tests (13).
+
 ## v0.1.31 — No crash on closing
 
 - **Fixed: SDS-Manager could crash when closed** (a segmentation fault reported by the system after the window had gone). Nothing was lost: by then everything is saved. The crash came from Python 3.14 tearing down PyQt6's objects one by one at exit, the same problem SDS100 Monitor had in 1.1.47/48.
