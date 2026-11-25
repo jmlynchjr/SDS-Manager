@@ -45,6 +45,14 @@ def clean_request(data):
         return None
     if data.get("action") == "show":                 # v0.1.30: a second start brings this window forward
         return {"action": "show"}
+    if data.get("action") == "attenuator":           # v0.1.41: Monitor → Signal and Attenuator
+        return clean_attenuator_request(data)
+    if data.get("action") == "heard_check":          # v0.1.40: Monitor → Check Heard Talkgroups
+        try:
+            days = int(data.get("days") or 30)
+        except (TypeError, ValueError):
+            days = 30
+        return {"action": "heard_check", "days": max(1, min(days, 365))}
     out = {k: str(data.get(k) or "").strip()[:200] for k in REQUEST_KEYS}
     out["tgid"] = re.sub(r"^(TGID|TG)\s*[:=]?\s*", "", out["tgid"], flags=re.I)
     if not out["tgid"].isdigit():
@@ -62,6 +70,99 @@ def clean_request(data):
     modulation = str(data.get("modulation") or "").strip().upper()
     out["modulation"] = modulation if modulation in ("AUTO", "FM", "NFM", "AM") else "AUTO"
     return out if (out["tgid"] or out["frequency"]) else None
+
+
+# ---- the attenuator, from SDS100 Monitor (v0.1.41) -----------------------------------------------------
+#
+# The Monitor's Signal and Attenuator report and its attenuator test say where the attenuator helps or hurts:
+# for a trunked site (Site record, field 12) or a conventional channel (C-Freq, field 9). It asks SDS-Manager
+# to set it in the open configuration, so the setting is kept and Export to Scanner doesn't undo it.
+SITE_ATT = 12
+CFREQ_ATT = 9
+NO_SITE = "(site not reported)"
+
+
+def clean_attenuator_request(data):
+    req = {"action": "attenuator", "on": bool(data.get("on"))}
+    for key in ("system", "site", "channel"):
+        req[key] = str(data.get(key) or "").strip()[:200]
+    mhz = re.sub(r"\s*MHz$", "", str(data.get("frequency") or "").strip(), flags=re.I)
+    try:
+        req["frequency"] = f"{float(mhz):.6f}" if 25 <= float(mhz) <= 1300 else ""
+    except ValueError:
+        req["frequency"] = ""
+    if req["frequency"] or (req["system"] and req["site"]):
+        return req
+    return None
+
+
+def describe_attenuator(req):
+    where = (f"{req['frequency'].rstrip('0').rstrip('.')} MHz" + (f" ({req['channel']})" if req.get("channel") else "")
+             if req.get("frequency") else
+             f"site {req['site']}" if req.get("site") and req["site"] != NO_SITE else "every site")
+    return f"attenuator {'on' if req['on'] else 'off'} for {where}" + (f" of {req['system']}" if req.get("system") else "")
+
+
+def _system_name(entry):
+    records = entry.get("records") or []
+    return entry.get("name") or (records[0][3] if records and len(records[0]) > 3 else "")
+
+
+def attenuator_targets(drafts, req):
+    """Where the setting goes: [{draft, entry_index, row_index, kind, label, now}], best match first.
+    A frequency: every conventional channel on it (only the same-named system's when it has one). A site:
+    the site of that name in the same-named trunked system, or every site of it when the Monitor didn't
+    know the site."""
+    found = []
+    want_hz = round(float(req["frequency"]) * 1_000_000) if req.get("frequency") else None
+    for draft, entries in drafts.items():
+        for ei, entry in enumerate(entries or []):
+            if entry.get("scope") == "metadata":
+                continue
+            system = _system_name(entry)
+            group = ""
+            for ri, row in enumerate(entry.get("records") or []):
+                if not row:
+                    continue
+                kind = row[0].strip()
+                if kind in ("C-Group", "T-Group"):
+                    group = row[3] if len(row) > 3 else ""
+                if want_hz is not None:
+                    if kind != "C-Freq" or len(row) <= CFREQ_ATT or not row[5].strip().isdigit():
+                        continue
+                    if abs(int(row[5]) - want_hz) > 50:
+                        continue
+                    index = CFREQ_ATT
+                    score = 2 * _same(system, req.get("system")) + _same(row[3], req.get("channel"))
+                else:
+                    if kind != "Site" or len(row) <= SITE_ATT or not _same(system, req.get("system")):
+                        continue
+                    if req.get("site") and req["site"] != NO_SITE and not _same(row[3], req["site"]):
+                        continue
+                    index = SITE_ATT
+                    score = 2
+                label = " › ".join(p for p in (list_label(draft), system, group if kind == "C-Freq" else "",
+                                               row[3] or "(no name)") if p)
+                found.append({"draft": draft, "entry_index": ei, "row_index": ri, "kind": kind, "field": index,
+                              "label": label, "now": row[index] or "Off", "score": score})
+    if want_hz is not None and any(f["score"] >= 2 for f in found):
+        found = [f for f in found if f["score"] >= 2]                # the same system's channels only
+    found.sort(key=lambda f: (-f["score"], f["label"].casefold()))
+    return found
+
+
+def apply_attenuator(drafts, targets, on):
+    """Set the attenuator on the targets. Returns how many changed; raises ValueError if a list changed."""
+    value = "On" if on else "Off"
+    count = 0
+    for t in targets:
+        row = drafts[t["draft"]][t["entry_index"]]["records"][t["row_index"]]
+        if row[0].strip() != t["kind"] or len(row) <= t["field"]:
+            raise ValueError(f"The list changed since it was read ({t['label']}).")
+        if row[t["field"]] != value:
+            row[t["field"]] = value
+            count += 1
+    return count
 
 
 def describe_request(req):

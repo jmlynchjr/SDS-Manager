@@ -16,6 +16,7 @@
 | Scanner I/O | `scanner_preflight.py`, `scanner_identity.py`, `scanner_backup.py`, `scanner_first_write.py` (batch export), `scanner_restore.py`, `scanner_export_preview.py`, `scanner_configurations.py` (local configuration library) |
 | Update from RadioReference (v0.1.35) | `rr_update.py` (pure: compare a list system with RadioReference's, apply ticked changes), `rr_links.py` (which RadioReference system each list system came from), `rr_update_dialog.py` (the window). |
 | Check all lists and compare two configurations (v0.1.38) | `rr_update_dialog.py` (`check_all_lists`; every key is `(list name, index)`), `config_compare.py` (`compare(first, second, sides)`: `SCANNER_SIDES` or `configuration_sides(a, b)` name the two sides), `compare_dialog.py` (`compare_two_configurations`, `ChooseComparisonDialog`, `comparison_choices`). SDS150 USB identity: `scanner_first_write.KNOWN_SCANNERS_USB`. |
+| Check heard talkgroups (v0.1.39) | `heard_check.py` (pure: the Monitor's history → talkgroups not in the lists or unnamed → RadioReference (`fetch_rr`, through the `rr_links` link) → `apply`), `heard_check_dialog.py` (the window, `HeardCheckMixin.check_heard_talkgroups`). |
 | Data folder (v0.1.34) | `data_area.py`: the one folder for everything the program makes, `folder()`/`unique()` for new files, `migrate()` of the old database folder. New output never asks for a location. |
 | Audits and rehearsals (diagnostic, read-only) | `scanner_native_*_audit.py`, `scanner_native_*probe.py`, `scanner_*_rehearsal.py` |
 

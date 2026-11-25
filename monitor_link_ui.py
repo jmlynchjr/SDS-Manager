@@ -91,6 +91,12 @@ class MonitorLinkMixin:
         self.activateWindow()
         if request.get('action') == 'show':
             return
+        if request.get('action') == 'heard_check':      # v0.1.40
+            self.heard_check_from_monitor(request.get('days', 30))
+            return
+        if request.get('action') == 'attenuator':      # v0.1.41
+            self.attenuator_from_monitor(request)
+            return
         what = monitor_link.describe_request(request)
         if request.get('action') == 'add':
             self.add_heard_entry(request, what)
@@ -130,6 +136,69 @@ class MonitorLinkMixin:
                 return
             match = matches[labels.index(choice)]
         self.open_list_editor_at(match)
+
+    def heard_check_from_monitor(self, days=30):
+        """SDS100 Monitor asked (its menu, or a report link) to check the talkgroups it heard (v0.1.40)."""
+        title = 'Check Heard Talkgroups'
+        if QApplication.activeModalWidget() is not None:
+            QMessageBox.information(self, title, 'SDS100 Monitor asked to check the talkgroups it heard.\n\n'
+                                    'Close the window that is open in SDS-Manager first, then ask again.')
+            return
+        if not any(entries for entries in self.workspace.drafts.values()):
+            if QMessageBox.question(self, title, 'SDS100 Monitor asked to check the talkgroups it heard.\n\n'
+                                    'Open a scanner configuration to check them against?') \
+                    != QMessageBox.StandardButton.Yes:
+                return
+            self.show_scanner_configurations()
+            if not any(entries for entries in self.workspace.drafts.values()):
+                return
+        self.check_heard_talkgroups(days)
+
+    def attenuator_from_monitor(self, request):
+        """SDS100 Monitor (Signal and Attenuator) asked to set the attenuator for a site or a channel (v0.1.41)."""
+        title = 'Attenuator from SDS100 Monitor'
+        what = monitor_link.describe_attenuator(request)
+        if QApplication.activeModalWidget() is not None:
+            QMessageBox.information(self, title, f'SDS100 Monitor asked to set the {what}.\n\nClose the window '
+                                    'that is open in SDS-Manager first, then ask again.')
+            return
+        if not any(entries for entries in self.workspace.drafts.values()):
+            if QMessageBox.question(self, title, f'SDS100 Monitor asked to set the {what}.\n\nOpen a scanner '
+                                    'configuration to set it in?') != QMessageBox.StandardButton.Yes:
+                return
+            self.show_scanner_configurations()
+            if not any(entries for entries in self.workspace.drafts.values()):
+                return
+        drafts = self.workspace.drafts
+        targets = monitor_link.attenuator_targets(drafts, request)
+        if not targets:
+            QMessageBox.information(self, title, f'SDS100 Monitor asked to set the {what}, but the open '
+                                    'configuration\'s Favorites Lists have no ' + ('channel on that frequency.'
+                                    if request.get('frequency') else 'such site in that system.'))
+            return
+        dialog = AttenuatorDialog(self, what, targets, request['on'])
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        chosen = dialog.chosen()
+        if not chosen:
+            return
+        try:
+            self.workspace._snapshot()
+            count = monitor_link.apply_attenuator(drafts, chosen, request['on'])
+        except ValueError as exc:
+            if getattr(self.workspace, '_undo', None):
+                self.workspace._undo.pop()
+            QMessageBox.warning(self, title, str(exc))
+            return
+        if not count:
+            if getattr(self.workspace, '_undo', None):
+                self.workspace._undo.pop()                  # nothing changed: no Undo step
+            self.statusBar().showMessage('The attenuator was already set that way.', 10000)
+            return
+        self.workspace.refresh_draft()
+        self._refresh_configuration_label()
+        self.statusBar().showMessage(f'Attenuator {"on" if request["on"] else "off"} for {count} place(s). Save '
+                                     'Configuration keeps it; Export to Scanner sends it.', 15000)
 
     def search_rr_frequency(self, frequency='', tone=''):
         """Tools → Search Frequency in RadioReference…, or SDS100 Monitor's request (v0.1.28)."""
@@ -210,6 +279,50 @@ class MonitorLinkMixin:
                                     'Every talkgroup in the open Favorites Lists already has a name.')
             return
         UnnamedTalkgroupsDialog(self, items).exec()
+
+
+class AttenuatorDialog(QDialog):
+    """Which places get the attenuator setting the Monitor asked for (v0.1.41)."""
+
+    def __init__(self, window, what, targets, on):
+        super().__init__(window)
+        self.targets = targets
+        self.setWindowTitle('Attenuator from SDS100 Monitor')
+        layout = QVBoxLayout(self)
+        intro = QLabel(f'SDS100 Monitor suggests the {what}. Untick any place that should stay as it is. '
+                       'The change is one Undo step; Save Configuration keeps it and Export to Scanner sends it.')
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        self.table = QTableWidget(len(targets), 4)
+        self.table.setHorizontalHeaderLabels(['Change', 'Where', 'Now', 'Becomes'])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        for r, t in enumerate(targets):
+            tick = QTableWidgetItem('')
+            tick.setFlags(tick.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            tick.setCheckState(Qt.CheckState.Checked if t['now'] != ('On' if on else 'Off')
+                               else Qt.CheckState.Unchecked)
+            self.table.setItem(r, 0, tick)
+            for c, text in enumerate((t['label'], t['now'], 'On' if on else 'Off'), 1):
+                self.table.setItem(r, c, QTableWidgetItem(text))
+        header = self.table.horizontalHeader()
+        for c in (0, 2, 3):
+            header.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        rows = min(max(len(targets), 4), 12)           # room for the rows: never squeezed (owner's rule)
+        self.table.setMinimumSize(620, 34 + 30 * rows)
+        layout.addWidget(self.table, 1)
+        buttons = QDialogButtonBox()
+        change = buttons.addButton('CHANGE', QDialogButtonBox.ButtonRole.AcceptRole)
+        buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
+        change.clicked.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.adjustSize()
+
+    def chosen(self):
+        return [t for r, t in enumerate(self.targets)
+                if self.table.item(r, 0) is not None and self.table.item(r, 0).checkState() == Qt.CheckState.Checked]
 
 
 class UnnamedTalkgroupsDialog(QDialog):

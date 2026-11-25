@@ -143,7 +143,7 @@ class MenuWiringTests(unittest.TestCase):
         defined = {n.name for c in (window,) + tuple(n for n in mixin_tree.body if isinstance(n, ast.ClassDef))
                    for n in c.body if isinstance(n, ast.FunctionDef)}
         for other in ('ui_extras.py', 'monitor_link_ui.py', 'updates.py', 'compare_dialog.py',
-                      'rr_update_dialog.py'):
+                      'rr_update_dialog.py', 'heard_check_dialog.py'):
             defined |= {n.name for n in ast.walk(ast.parse((Path(__file__).parent / other).read_text()))
                         if isinstance(n, ast.FunctionDef)}
         missing = sorted(u for u in used if u not in defined and u not in (

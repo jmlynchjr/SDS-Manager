@@ -292,6 +292,84 @@ class UiTests(unittest.TestCase):
         self.assertIsNone(module.monitor_request_from_args(['x', '--open-entry']))
 
 
+class AttenuatorTests(unittest.TestCase):         # v0.1.41: from SDS100 Monitor's Signal and Attenuator
+    def lists(self):
+        d = drafts()
+        trunk = next(e for e in d['Greenville (editable copy)'] if e.get('name') == 'Palmetto 800')
+        site = ['Site', '', '', 'Greenville County Simulcast', 'Off', '34.8', '-82.4', '20', 'AUTO', '', '', '',
+                'Off', '', '', '', 'Off', '', 'Global']
+        north = list(site)
+        north[3] = 'North'
+        trunk['records'][1:1] = [site, north]
+        conv = next(e for e in d['Greenville (editable copy)'] if e.get('name') == 'Weather')
+        conv['records'][2] = ['C-Freq', '', '', 'NWS Greenville', 'Off', '162550000', 'FM', '', '0', 'Off', '2']
+        return d
+
+    def test_request(self):
+        req = ml.clean_request({'action': 'attenuator', 'on': True, 'system': 'Palmetto 800',
+                                'site': 'Greenville County Simulcast'})
+        self.assertEqual((req['action'], req['on'], req['frequency']), ('attenuator', True, ''))
+        self.assertEqual(ml.clean_request({'action': 'attenuator', 'frequency': '162.550 MHz'})['frequency'],
+                         '162.550000')
+        self.assertIsNone(ml.clean_request({'action': 'attenuator', 'system': 'Palmetto 800'}))
+        self.assertIn('site Greenville County Simulcast', ml.describe_attenuator(req))
+
+    def test_site(self):
+        d = self.lists()
+        req = ml.clean_request({'action': 'attenuator', 'on': True, 'system': 'palmetto 800',
+                                'site': 'Greenville County Simulcast'})
+        targets = ml.attenuator_targets(d, req)
+        self.assertEqual([t['kind'] for t in targets], ['Site'])
+        self.assertEqual(ml.apply_attenuator(d, targets, True), 1)
+        row = d['Greenville (editable copy)'][1]['records'][1]
+        self.assertEqual(row[12], 'On')
+        self.assertEqual(row[16], 'Off')                                  # nothing else moved
+        self.assertEqual(ml.apply_attenuator(d, targets, True), 0)       # already set
+        every = ml.attenuator_targets(d, dict(req, site=ml.NO_SITE))
+        self.assertEqual(len(every), 2)
+
+    def test_channel(self):
+        d = self.lists()
+        req = ml.clean_request({'action': 'attenuator', 'on': True, 'frequency': '162.55', 'system': 'Weather'})
+        targets = ml.attenuator_targets(d, req)
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0]['now'], 'Off')
+        ml.apply_attenuator(d, targets, True)
+        self.assertEqual(d['Greenville (editable copy)'][2]['records'][2][9], 'On')
+
+    def test_from_the_monitor(self):
+        ui = UiTests().load()
+        h = UiTests().host(ui)
+        h.workspace.drafts = self.lists()
+        h._refresh_configuration_label = MagicMock()
+        ui.QApplication.activeModalWidget = MagicMock(return_value=None)
+        dialog = MagicMock()
+        dialog.exec.return_value = ui.QDialog.DialogCode.Accepted
+        dialog.chosen.side_effect = lambda: made['targets']
+        made = {}
+
+        def make(window, what, targets, on):
+            made['targets'] = targets
+            return dialog
+        with patch.object(ui, 'AttenuatorDialog', side_effect=make):
+            h.open_monitor_request(ml.clean_request({'action': 'attenuator', 'on': True, 'system': 'Palmetto 800',
+                                                     'site': 'North'}))
+        self.assertEqual(h.workspace.drafts['Greenville (editable copy)'][1]['records'][2][12], 'On')
+        h.workspace._snapshot.assert_called_once()
+        h.workspace.refresh_draft.assert_called_once()
+        ui.QMessageBox.information = MagicMock()
+        h.open_monitor_request(ml.clean_request({'action': 'attenuator', 'on': True, 'frequency': '460.1'}))
+        self.assertIn('no channel on that frequency', ui.QMessageBox.information.call_args[0][2])
+
+    def test_changed_list(self):
+        d = self.lists()
+        req = ml.clean_request({'action': 'attenuator', 'on': True, 'system': 'Palmetto 800', 'site': 'North'})
+        targets = ml.attenuator_targets(d, req)
+        d['Greenville (editable copy)'][1]['records'][targets[0]['row_index']] = ['TGID', '', '', 'x']
+        with self.assertRaises(ValueError):
+            ml.apply_attenuator(d, targets, True)
+
+
 if __name__ == '__main__':
     unittest.main()
 
@@ -313,3 +391,12 @@ class ExitTests(unittest.TestCase):
         self.assertNotIn("sys.exit(app.exec())", main)
         body = source[source.index("def leave(code):"):source.index('APP_ID = "sds-manager"')]
         self.assertLess(body.index("obj.sync()"), body.index("os._exit(code)"))
+
+
+class HeardCheckRequestTests(unittest.TestCase):
+    def test_heard_check_request(self):                 # v0.1.40: from SDS100 Monitor
+        self.assertEqual(ml.clean_request({'action': 'heard_check', 'days': 3}), {'action': 'heard_check', 'days': 3})
+        self.assertEqual(ml.clean_request('{"action": "heard_check"}')['days'], 30)
+        self.assertEqual(ml.clean_request({'action': 'heard_check', 'days': 9999})['days'], 365)
+        self.assertEqual(ml.clean_request({'action': 'heard_check', 'days': 'x'})['days'], 30)
+

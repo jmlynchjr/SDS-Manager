@@ -1,3 +1,25 @@
+## v0.1.41 — The attenuator from SDS100 Monitor
+
+- **SDS100 Monitor can set the attenuator in your Favorites Lists.** Its **Tools → Signal and Attenuator…** (1.1.113 or later) says where the attenuator helps or hurts, for a trunked site or a conventional channel; right-click there (or **SET IN SDS-MANAGER** after its attenuator test) to send it here. SDS-Manager comes to the front, offers to open a configuration if none is open, and lists every place it would change: the site of that name in the same system (every site of the system when the Monitor didn't know which), or every conventional channel on that frequency (only the same system's when it has one), each with its setting now. Untick any to leave; **CHANGE** sets them as one Undo step. Save Configuration keeps it and Export to Scanner sends it, so the export no longer undoes an attenuator you only set on the scanner.
+- New tests (5).
+
+## v0.1.40 — Check Heard Talkgroups from SDS100 Monitor
+
+- **SDS100 Monitor can open Check Heard Talkgroups with RadioReference.** In the Monitor (1.1.92 or later), **Tools → Check Heard Talkgroups in SDS-Manager…** (the last 30 days), or the link under *Talkgroups and channels not heard in the previous 30 days* in a daily, weekly or monthly report (the days of that report). SDS-Manager comes to the front (it is started if it isn't running), offers to open a configuration if none is open, and opens the window for those days.
+- New tests (1).
+
+## v0.1.39 — Check heard talkgroups with RadioReference
+
+- **New: Tools → Check Heard Talkgroups with RadioReference…** takes the talkgroups SDS100 Monitor heard and finds the ones this configuration's Favorites Lists don't have, or have with no real name (blank, just the ID, "TGID 44353").
+  - **Heard in the last** 30 days to begin with (1–365); **RELOAD** reads the Monitor's history again. Talkgroups are matched by system name and TGID, as in the list editor's Heard columns.
+  - Each talkgroup shows its system, TGID, calls, when it was last heard, and whether it is **Not in your lists**, **In your lists, no name**, or on a **System not in your lists** (those can't be added: add the system first).
+  - **LOOK UP ON RADIOREFERENCE** reads each system's talkgroups and categories through the RadioReference system it is linked to, the same links as Update from RadioReference; **CHOOSE…** links a system that isn't linked yet. Each system is read once per session.
+  - It suggests the **name** (RadioReference's, as for lists built from RadioReference; otherwise the name the scanner showed), the **department** for a new talkgroup (the RadioReference category: the list's department of that name, or a new one; *Heard by Monitor* when there is no category) and the **service type**. Names and departments can be changed before applying.
+  - Ticked to begin with: talkgroups found on RadioReference that aren't fully encrypted. Fully and partly encrypted talkgroups are marked; talkgroups RadioReference doesn't have can be ticked and named by hand.
+  - **APPLY TICKED** adds the missing talkgroups (quick keys and number tags Off, like Add to Favorites) and names the unnamed ones, as one Undo step. Save Configuration and Export to Scanner as usual.
+- The Monitor's files are only read, and RadioReference is read live through your own account; nothing from it is stored.
+- New tests (9).
+
 ## v0.1.38 — Check all lists, compare two configurations, SDS150
 
 - **New: Favorites → Check All Lists from RadioReference…** checks every Favorites List in the configuration in one window: each linked system of each list, with the differences grouped under the list they belong to.

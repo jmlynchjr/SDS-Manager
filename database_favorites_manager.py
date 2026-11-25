@@ -20,6 +20,7 @@ from favorites_manager import FavoritesManager
 from manage_actions import ManageMixin
 from compare_dialog import CompareMixin
 from rr_update_dialog import RRUpdateMixin
+from heard_check_dialog import HeardCheckMixin
 
 
 class RestorePreviewWorker(QObject):
@@ -248,7 +249,8 @@ def keep_archive_copy(source, downloads, status=lambda text: None):
     return target
 
 
-class ManagerWindow(ManageMixin, CompareMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, RRUpdateMixin, QMainWindow):
+class ManagerWindow(ManageMixin, CompareMixin, ExtrasMixin, MonitorLinkMixin, UpdatesMixin, RRUpdateMixin,
+                    HeardCheckMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
@@ -2225,6 +2227,7 @@ class ManagerWindow(ManageMixin, CompareMixin, ExtrasMixin, MonitorLinkMixin, Up
         find = menus['Tools'].addAction('Find Everywhere…', self.find_everywhere)
         find.setShortcut('Ctrl+F')
         menus['Tools'].addAction('Name Unnamed Talkgroups…', self.name_unnamed_talkgroups)
+        menus['Tools'].addAction('Check Heard Talkgroups with RadioReference…', self.check_heard_talkgroups)
         menus['Tools'].addAction('Search Frequency in RadioReference…', lambda: self.search_rr_frequency())
         menus['Tools'].addAction('RadioReference Account…', self.open_rr_account)
         tools_advanced = menus['Tools'].addMenu('Advanced')
